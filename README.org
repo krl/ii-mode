@@ -1,0 +1,23 @@
+* About
+ii-mode is an Emacs mode for handling files created by ii. I wrote this because i was fed up with being logged out of my servers at each Emacs restart. Also, I find it much cleaner to use Emacs as an interface to external programs rather than running them inside the editor. You can also close channel buffers without parting from them.
+* License
+GPL v3 or later.
+* Dependencies
+- GNU Emacs :: not tested in any other flavor.
+- ii :: The minimalist filesystem based irc client from [[http://tools.suckless.org/ii/][suckless]].
+- inotify-tools :: ii-mode uses inotifywait from this package to keep track of file changes.
+* How to use
+Put ii-mode.el in your emacs path and write something like this in your init file:
+#+begin_src emacs-lisp
+  (require 'ii-mode)
+  (setf ii-irc-directory "/home/username/irc/")
+  (add-to-list 'auto-mode-alist `(,(concat ii-irc-directory ".*/out\\'") . ii-mode))
+#+end_src
+For now you have to open the channel files manually. Some kind of overview-buffer is being worked on.
+* Left to do 
+This is a early version, there's still stuff to be done to make it really usable.
+
+- nickname completion
+- previous entries ring
+- communication notifications
+- deactivate "modified, kill anyway?"
