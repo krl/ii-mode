@@ -10,6 +10,7 @@
   "The inotify process")
 (defvar ii-channel-sizes (make-hash-table :test 'equal)
   "Keeps track of channel-file sizes for reading latest input only")
+(defvar ii-mode-hooks nil)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; database
@@ -76,8 +77,8 @@
 (defvar ii-mode-map nil)
 (setq ii-mode-map (let ((map (make-sparse-keymap)))
 		    (define-key map [remap save-buffer] (lambda () (interactive) (message "nop")))
-		    (define-key map [remap move-beginning-of-line] 'ii-beginning-of-line)
-		    (define-key map "\C-c\C-s" 'ii-send-message)
+		    (define-key map "\C-a" 'ii-beginning-of-line)
+		    (define-key map "RET" 'ii-send-message)
 		    map))
 
 (defun ii-mode-init ()
@@ -102,7 +103,8 @@
     (put-text-property (point-min) (point-max) 'read-only t)
     (put-text-property (1- (point-max)) (point-max) 'rear-nonsticky t))  
   (ii-setup-maybe)
-  (goto-char (point-max)))
+  (goto-char (point-max))
+  (run-hooks ii-mode-hooks))
 	     
 ;; movement
 

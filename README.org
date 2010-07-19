@@ -8,11 +8,18 @@ GPL v3 or later.
 - inotify-tools :: ii-mode uses inotifywait from this package to keep track of file changes.
 * How to use
 Put ii-mode.el in your emacs path and write something like this in your init file:
-#+begin_src emacs-lisp
-  (require 'ii-mode)
-  (setf ii-irc-directory "/home/username/irc/")
-  (add-to-list 'auto-mode-alist `(,(concat ii-irc-directory ".*/out\\'") . ii-mode))
-#+end_src
+
+: (require 'ii-mode)
+:  (setf ii-irc-directory "/home/username/irc/")
+:  (add-to-list 'auto-mode-alist `(,(concat ii-irc-directory ".*/out\\'") . ii-mode))
+
+To customize behavior you can use ii-mode-hook, this is what I do:
+
+: (add-hook 'ii-mode-hook (lambda () 
+:                           (visual-line-mode)                          
+:                           (local-set-key (kbd "RET") 'newline)
+:                           (local-set-key (kbd "C-c C-s") 'ii-send-message)))
+
 For now you have to open the channel files manually. Some kind of overview-buffer is being worked on.
 * Left to do 
 This is a early version, there's still stuff to be done to make it really usable.
