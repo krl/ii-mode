@@ -7,6 +7,9 @@ GPL v3 or later.
 - ii :: The minimalist filesystem based irc client from [[http://tools.suckless.org/ii/][suckless]].
 - inotify-tools :: ii-mode uses inotifywait from this package to keep track of file changes.
 * How to use
+For minimizing headache, make sure to get a version of ii with the 'joinuser'-patch
+available at http://tools.suckless.org/ii/patches/joinuser
+
 Put ii-mode.el in your emacs path and write something like this in your init file:
 
 : (require 'ii-mode)
@@ -20,11 +23,23 @@ To customize behavior you can use ii-mode-hook, this is what I do:
 :                           (local-set-key (kbd "RET") 'newline)
 :                           (local-set-key (kbd "C-c C-s") 'ii-send-message)))
 
-For now you have to open the channel files manually. Some kind of overview-buffer is being worked on.
+* Notification
+By default, you only get notified on queries. To ii-mode, this is channels with directories not starting with "#" or "&". To get notified on mentioning of your user name or favourite dish just set the variable 'ii-notify-regexps in your config like this:
+
+: (setf ii-notify-regexps '("\\bkrl\\b" "\\bkrl\\b"))
+
+If you have a channel you want to keep extra track of, put it in the list 'ii-notify-channels and you will be bugged when it's updated.
+
+: (setf ii-notify-channels '("irc.efnet.net/#data_kraft"))
+
+You will se a "*ii*" in the global modeline when a notification is activated. To see which and/or to visit them, bind the command 'ii-visit-notified-file to a key sequence of choice.
+
+To visit any of the channels tracked by ii-mode use 'ii-visit-channel-file, and to visit any of the server channels use 'ii-visit-server-file.
+
 * Left to do 
 This is a early version, there's still stuff to be done to make it really usable.
 
 - nickname completion
 - previous entries ring
-- communication notifications
-- deactivate "modified, kill anyway?"
+- fix the annoying buffer modified really kill etc things.
+

@@ -12,19 +12,64 @@
   "Keeps track of channel-file sizes for reading latest input only")
 (defvar ii-mode-hooks nil)
 
+;; standard notifications
+(defvar ii-notifications nil)
+(defvar ii-notifications-lowprio nil)
+
+(defvar ii-notification-lists '(ii-notifications ii-notifications-lowprio)
+  "A list of symbols associated with notification lists, when a buffer is visited, its filename is removed from these.")
+
+(defvar ii-notify-regexps nil
+  "A list of regexps to match incoming text for notification")
+
+(defvar ii-notify-channels nil
+  "A list of channels to recieve special notification love. Uses the shortname form \"server/channel\".")
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; database
+;; database/file handling
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun ii-query-file-p (file)
+  (string-match (concat "^" ii-irc-directory "[^/]+/[^#&][^/]+/out$") file))
+
+(defun ii-channel-name (name)
+  (first (last (split-string (file-name-directory name) "/") 2)))
+
+(defun ii-shortname (long)
+  (string-match (concat "^" ii-irc-directory "\\(.*\\)/out$") long)
+  (match-string 1 long))
+
+(defun ii-longname (short)
+   (concat ii-irc-directory short "/out"))
 
 (defun ii-filesize (file)
   (nth 7 (file-attributes file)))
 
 (defun ii-get-channels ()
-  (split-string (shell-command-to-string (concat "find " ii-irc-directory " -name out")) "\n"))
+  (remove-if (lambda (x) (string= x "")) ; no empty strings
+	     (split-string (shell-command-to-string
+			    (concat "find " ii-irc-directory " -name out")) "\n")))
 
 (defun ii-get-channel-sizes ()
   (dolist (outfile (ii-get-channels))
     (puthash outfile (ii-filesize outfile) ii-channel-sizes)))
+
+(defun ii-visit-file-among (list)
+  (when (null list) (error "No notifications"))
+  (find-file
+   (ii-longname
+    (ido-completing-read 
+     "find: " (mapcar 'ii-shortname list) nil t))))
+
+(defun ii-visit-server-file ()
+  (interactive)
+  (ii-visit-file-among
+   (remove-if-not (lambda (x) (string-match (concat "^" ii-irc-directory "[^/]*/out$") x))
+		  (ii-get-channels))))
+
+(defun ii-visit-channel-file ()
+  (interactive)
+  (ii-visit-file-among (ii-get-channels)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; inotify
@@ -48,14 +93,20 @@
 (defun ii-handle-file-update (file)
   (let ((delta      (get-file-delta file))
   	(buffer (get-file-buffer file)))
-    (when (and delta buffer)
-      ;; Affected file is being changed and visited
-      (with-current-buffer buffer
-	(let ((inhibit-read-only t)
-	      (marker-from-end (- (point-max) (point))))
-	  (goto-char ii-prompt-marker)
-	  (insert-before-markers (propertize delta 'read-only t))
-	  (goto-char (- (point-max) marker-from-end)))))))
+    (when delta
+      (when buffer
+	;; Affected file is being changed and visited
+	(with-current-buffer buffer
+	  (let ((inhibit-read-only t)
+		(marker-from-end (- (point-max) (point))))
+	    (goto-char ii-prompt-marker)
+	    (insert-before-markers (propertize delta 'read-only t))
+	    (goto-char (- (point-max) marker-from-end)))))
+      (when (and (not (eq buffer (current-buffer))) ; Not currently selected.
+		 (or (ii-query-file-p file)         ; Either a personal query,
+		     (ii-contains-regexp delta)
+		     (ii-special-channel file)))    ; or channel with highlight
+	(ii-notify file)))))
 
 (defun get-file-delta (file)
   (let ((old-size (gethash file ii-channel-sizes 0))
@@ -77,21 +128,25 @@
 (defvar ii-mode-map nil)
 (setq ii-mode-map (let ((map (make-sparse-keymap)))
 		    (define-key map [remap save-buffer] (lambda () (interactive) (message "nop")))
-		    (define-key map "\C-a" 'ii-beginning-of-line)
-		    (define-key map "RET" 'ii-send-message)
+		    (define-key map (kbd "C-a") 'ii-beginning-of-line)
+		    (define-key map (kbd "RET") 'ii-send-message)
 		    map))
 
 (defun ii-mode-init ()
   (use-local-map ii-mode-map)
-  ;; disable autosave and "modified; kill anyway?"
-  (auto-save-mode nil)
+  ;; disable autosave
+  ;; TODO: disabling "modified; kill anyway?"
+  (setf buffer-auto-save-file-name nil)
 
   ;; rename buffer
-  (let ((name (first (last (split-string (file-name-directory (buffer-file-name)) "/") 2))))
-    (rename-buffer (generate-new-buffer-name name)))
+  (when (string= (buffer-name) "out")
+    (rename-buffer (generate-new-buffer-name (ii-channel-name (buffer-file-name)))))
 
   ;; local variables.  
   (set (make-local-variable 'ii-prompt-marker) (make-marker))
+
+  ;; add hook 
+  (add-hook 'window-configuration-change-hook 'ii-clear-notifications nil t)
 
   ;; insert prompt and make log readonly.
   (goto-char (point-max))
@@ -105,8 +160,10 @@
   (ii-setup-maybe)
   (goto-char (point-max))
   (run-hooks ii-mode-hooks))
-	     
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;	     
 ;; movement
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun ii-beginning-of-line ()
   (interactive)
@@ -114,7 +171,9 @@
       (goto-char (+ ii-prompt-marker (length ii-prompt-text)))
     (move-beginning-of-line nil)))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; sending messages
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun ii-send-message ()
   (interactive)
@@ -138,7 +197,36 @@
     (delete-region start-pos (point-max))
     text))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; notifications
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun ii-notify (file)
+  (unless (member file ii-notifications)
+    (push file ii-notifications))
+  (setf global-mode-string "*ii*"))
+
+(defun ii-contains-regexp (lines)
+  (some (lambda (x) (string-match x lines)) ii-notify-regexps))
+
+(defun ii-special-channel (filename)
+  (member (ii-shortname filename) ii-notify-channels))
+
+(defun ii-visit-notified-file ()
+  (interactive)
+  (ii-visit-file-among ii-notifications))
+
+(defun ii-clear-notifications ()
+  (dolist (list-symbol ii-notification-lists)
+    (if (member (buffer-file-name) (symbol-value list-symbol))
+	(setf (symbol-value list-symbol) 
+	      (remove (buffer-file-name) (symbol-value list-symbol)))))
+  (if (null ii-notifications) 
+      (setf global-mode-string "")))
+	
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; overview mode TBD
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define-derived-mode ii-overview-mode fundamental-mode "ii-overview"
    (use-local-map ii-overview-mode-map))
@@ -146,9 +234,6 @@
 (let ((map (make-sparse-keymap)))
   (define-key map "RET" 'ii-overview-open-buffer)
   (setq ii-overview-mode-map map))
-
-(defun ii-overview-follow-link ()
-  (interactive))
 
 (defun ii-overview ()
   (interactive)
@@ -163,6 +248,6 @@
 		     'front-sticky t
 		     'channel-path channel))))))
 
-;; provide
+;; leverera
 
 (provide 'ii-mode)
