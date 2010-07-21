@@ -55,11 +55,13 @@
     (puthash outfile (ii-filesize outfile) ii-channel-sizes)))
 
 (defun ii-visit-file-among (list)
-  (when (null list) (error "No notifications"))
-  (find-file
-   (ii-longname
-    (ido-completing-read 
-     "find: " (mapcar 'ii-shortname list) nil t))))
+  (let* ((file (ii-longname
+		(ido-completing-read 
+		 "find: " (mapcar 'ii-shortname list) nil t)))
+	 (buffer (some (lambda (x) (when (string= (buffer-file-name x) file) x)) (buffer-list))))
+    (if buffer
+	(switch-to-buffer buffer)
+      (find-file file))))
 
 (defun ii-visit-server-file ()
   (interactive)
@@ -145,7 +147,7 @@
   ;; local variables.  
   (set (make-local-variable 'ii-prompt-marker) (make-marker))
 
-  ;; add hook 
+  ;; add hooks
   (add-hook 'window-configuration-change-hook 'ii-clear-notifications nil t)
 
   ;; insert prompt and make log readonly.
@@ -214,6 +216,7 @@
 
 (defun ii-visit-notified-file ()
   (interactive)
+  (when (null ii-notifications) (error "No notifications"))
   (ii-visit-file-among ii-notifications))
 
 (defun ii-clear-notifications ()
