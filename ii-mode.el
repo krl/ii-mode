@@ -1,3 +1,4 @@
+(require 'history-ring)
 (defvar ii-temp-file     "/tmp/iie.tmp"
   "Temporary file to save messages before catting them into ii input fifos")
 (defvar ii-irc-directory "~/irc/"
@@ -40,7 +41,7 @@
   (match-string 1 long))
 
 (defun ii-longname (short)
-   (concat ii-irc-directory short "/out"))
+  (concat ii-irc-directory short "/out"))
 
 (defun ii-filesize (file)
   (nth 7 (file-attributes file)))
@@ -131,6 +132,8 @@
 (setq ii-mode-map (let ((map (make-sparse-keymap)))
 		    (define-key map [remap save-buffer] (lambda () (interactive) (message "nop")))
 		    (define-key map (kbd "C-a") 'ii-beginning-of-line)
+		    (define-key map (kbd "M-p") 'ii-history-prev)
+		    (define-key map (kbd "M-n") 'ii-history-next)
 		    (define-key map (kbd "RET") 'ii-send-message)
 		    map))
 
@@ -146,6 +149,9 @@
 
   ;; local variables.  
   (set (make-local-variable 'ii-prompt-marker) (make-marker))
+
+  ;; init history-ring
+  (history-ring-init)
 
   ;; add hooks
   (add-hook 'window-configuration-change-hook 'ii-clear-notifications nil t)
@@ -173,25 +179,40 @@
       (goto-char (+ ii-prompt-marker (length ii-prompt-text)))
     (move-beginning-of-line nil)))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;	     
+;; history
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun ii-history-prev ()
+  "put the previous message in history-ring at prompt"
+  (interactive)
+  (history-ring-access 1 (+ ii-prompt-marker (length ii-prompt-text)) (point-max)))
+(defun ii-history-next ()
+  "put the next message in history-ring at prompt"
+  (interactive)
+  (history-ring-access -1 (+ ii-prompt-marker (length ii-prompt-text)) (point-max)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; sending messages
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun ii-send-message ()
   (interactive)
-  (let ((fifo-in (concat (file-name-directory (buffer-file-name)) "in")))
+  (let ((fifo-in (concat (file-name-directory (buffer-file-name)) "in"))
+        (msg (ii-clear-and-return-prompt)))
     (unless (file-exists-p fifo-in)
       (error "Invalid channel directory"))
     ;; semi-hack: catting tmpfile asynchronously to fifo to prevent lockups if
     ;; nothing is reading in the other end
-    (write-region (concat (ii-clear-and-return-prompt) "\n")
+    (write-region (concat msg "\n")
 		  nil ii-temp-file nil 
 		  ;; If VISIT is neither t nor nil nor a string,
 		  ;; that means do not display the "Wrote file" message.
 		  0)
     (start-process-shell-command 
      "ii-sendmessage" nil
-     (concat "cat " ii-temp-file " > \"" fifo-in "\""))))
+     (concat "cat " ii-temp-file " > \"" fifo-in "\""))
+    (history-ring-add msg)))
 
 (defun ii-clear-and-return-prompt ()
   (let* ((start-pos (+ ii-prompt-marker (length ii-prompt-text)))
@@ -226,13 +247,13 @@
 	      (remove (buffer-file-name) (symbol-value list-symbol)))))
   (if (null ii-notifications) 
       (setf global-mode-string "")))
-	
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; overview mode TBD
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define-derived-mode ii-overview-mode fundamental-mode "ii-overview"
-   (use-local-map ii-overview-mode-map))
+  (use-local-map ii-overview-mode-map))
 
 (let ((map (make-sparse-keymap)))
   (define-key map "RET" 'ii-overview-open-buffer)
