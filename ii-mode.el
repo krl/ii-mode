@@ -26,6 +26,26 @@
 (defvar ii-notify-channels nil
   "A list of channels to recieve special notification love. Uses the shortname form \"server/channel\".")
 
+;; colors
+(make-face 'ii-face-nick)
+(make-face 'ii-face-date)
+(make-face 'ii-face-time)
+(make-face 'ii-face-shadow)
+(make-face 'ii-face-prompt)
+
+(set-face-attribute 'ii-face-nick nil :foreground "#f22")
+(set-face-attribute 'ii-face-date nil :foreground "#555")
+(set-face-attribute 'ii-face-time nil :foreground "#777")
+(set-face-attribute 'ii-face-shadow nil :foreground "#ccc")
+(set-face-attribute 'ii-face-prompt nil :foreground "#0f0")
+
+(setq ii-colored-keywords
+      '(("<.?*>" . 'ii-face-nick)
+        ("^[0-9]+++-[0-9]+-[0-9]+" . 'ii-face-date)
+        ("[0-9]+:[0-9]+" . 'ii-face-time)
+        ("-!-.*" . 'ii-face-shadow)
+        ("^ii>" . 'ii-face-prompt)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; database/file handling
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -130,12 +150,12 @@
 
 (defvar ii-mode-map nil)
 (setq ii-mode-map (let ((map (make-sparse-keymap)))
-		    (define-key map [remap save-buffer] (lambda () (interactive) (message "nop")))
-		    (define-key map (kbd "C-a") 'ii-beginning-of-line)
-		    (define-key map (kbd "M-p") 'ii-history-prev)
-		    (define-key map (kbd "M-n") 'ii-history-next)
-		    (define-key map (kbd "RET") 'ii-send-message)
-		    map))
+                    (define-key map [remap save-buffer] (lambda () (interactive) (message "nop")))
+                    (define-key map (kbd "C-a") 'ii-beginning-of-line)
+                    (define-key map (kbd "M-p") 'ii-history-prev)
+                    (define-key map (kbd "M-n") 'ii-history-next)
+                    (define-key map (kbd "RET") 'ii-send-message)
+                    map))
 
 (defun ii-mode-init ()
   (use-local-map ii-mode-map)
@@ -149,6 +169,9 @@
 
   ;; local variables.  
   (set (make-local-variable 'ii-prompt-marker) (make-marker))
+
+  ;; coloring
+  (setq font-lock-defaults '(ii-colored-keywords t))
 
   ;; init history-ring
   (history-ring-init)
@@ -205,10 +228,10 @@
     ;; semi-hack: catting tmpfile asynchronously to fifo to prevent lockups if
     ;; nothing is reading in the other end
     (write-region (concat msg "\n")
-		  nil ii-temp-file nil 
-		  ;; If VISIT is neither t nor nil nor a string,
-		  ;; that means do not display the "Wrote file" message.
-		  0)
+                  nil ii-temp-file nil 
+                  ;; If VISIT is neither t nor nil nor a string,
+                  ;; that means do not display the "Wrote file" message.
+                  0)
     (start-process-shell-command 
      "ii-sendmessage" nil
      (concat "cat " ii-temp-file " > \"" fifo-in "\""))
@@ -216,7 +239,7 @@
 
 (defun ii-clear-and-return-prompt ()
   (let* ((start-pos (+ ii-prompt-marker (length ii-prompt-text)))
-	 (text (buffer-substring start-pos (point-max))))
+         (text (buffer-substring start-pos (point-max))))
     (delete-region start-pos (point-max))
     text))
 
@@ -243,8 +266,8 @@
 (defun ii-clear-notifications ()
   (dolist (list-symbol ii-notification-lists)
     (if (member (buffer-file-name) (symbol-value list-symbol))
-	(setf (symbol-value list-symbol) 
-	      (remove (buffer-file-name) (symbol-value list-symbol)))))
+        (setf (symbol-value list-symbol) 
+              (remove (buffer-file-name) (symbol-value list-symbol)))))
   (if (null ii-notifications) 
       (setf global-mode-string "")))
 
@@ -266,11 +289,11 @@
   (save-excursion 
     (let ((inhibit-read-only t))
       (dolist (channel (ii-get-channels))
-	(insert
-	 (propertize (concat channel "\n")
-		     'read-only t
-		     'front-sticky t
-		     'channel-path channel))))))
+        (insert
+         (propertize (concat channel "\n")
+                     'read-only t
+                     'front-sticky t
+                     'channel-path channel))))))
 
 ;; leverera
 
