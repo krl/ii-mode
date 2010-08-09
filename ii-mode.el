@@ -30,20 +30,24 @@
 (make-face 'ii-face-nick)
 (make-face 'ii-face-date)
 (make-face 'ii-face-time)
+(make-face 'ii-face-give-voice)
+(make-face 'ii-face-take-voice)
 (make-face 'ii-face-shadow)
 (make-face 'ii-face-prompt)
 
 (set-face-attribute 'ii-face-nick nil :foreground "#f22")
 (set-face-attribute 'ii-face-date nil :foreground "#555")
 (set-face-attribute 'ii-face-time nil :foreground "#777")
+(set-face-attribute 'ii-face-give-voice nil :foreground "#0ff")
+(set-face-attribute 'ii-face-take-voice nil :foreground "#f0f")
 (set-face-attribute 'ii-face-shadow nil :foreground "#ccc")
 (set-face-attribute 'ii-face-prompt nil :foreground "#0f0")
 
 (setq ii-colored-keywords
-      '(("<.?*>" . 'ii-face-nick)
-        ("^[0-9]+++-[0-9]+-[0-9]+" . 'ii-face-date)
-        ("[0-9]+:[0-9]+" . 'ii-face-time)
+      '(("\<.?*\>" . 'ii-face-nick)
         ("-!-.*" . 'ii-face-shadow)
+        ("^[0-9]+++-[0-9]+-[0-9]+\\ [0-9]+:[0-9]+" . 'ii-face-time)
+        ("^[0-9]+++-[0-9]+-[0-9]+" . 'ii-face-date)
         ("^ii>" . 'ii-face-prompt)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
