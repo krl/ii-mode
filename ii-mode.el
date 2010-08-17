@@ -26,7 +26,7 @@
 (defvar ii-notify-channels nil
   "A list of channels to recieve special notification love. Uses the shortname form \"server/channel\".")
 
-;; colors
+;; fontification
 (make-face 'ii-face-nick)
 (make-face 'ii-face-date)
 (make-face 'ii-face-time)
@@ -34,21 +34,32 @@
 (make-face 'ii-face-take-voice)
 (make-face 'ii-face-shadow)
 (make-face 'ii-face-prompt)
+(make-face 'ii-face-msg)
+(make-face 'ii-face-bold)
+(make-face 'ii-face-underline)
 
-(set-face-attribute 'ii-face-nick nil :foreground "#f22")
-(set-face-attribute 'ii-face-date nil :foreground "#555")
-(set-face-attribute 'ii-face-time nil :foreground "#777")
+(set-face-attribute 'ii-face-nick nil :foreground "#f00")
+(set-face-attribute 'ii-face-date nil :foreground "#999")
+(set-face-attribute 'ii-face-time nil :foreground "#bbb")
 (set-face-attribute 'ii-face-give-voice nil :foreground "#0ff")
 (set-face-attribute 'ii-face-take-voice nil :foreground "#f0f")
 (set-face-attribute 'ii-face-shadow nil :foreground "#ccc")
 (set-face-attribute 'ii-face-prompt nil :foreground "#0f0")
+(set-face-attribute 'ii-face-msg nil :foreground "#fff")
+(set-face-attribute 'ii-face-bold nil :bold t)
+(set-face-attribute 'ii-face-underline nil :underline t)
 
-(setq ii-colored-keywords
-      '(("\<.?*\>" . 'ii-face-nick)
-        ("-!-.*" . 'ii-face-shadow)
-        ("^[0-9]+++-[0-9]+-[0-9]+\\ [0-9]+:[0-9]+" . 'ii-face-time)
-        ("^[0-9]+++-[0-9]+-[0-9]+" . 'ii-face-date)
-        ("^ii>" . 'ii-face-prompt)))
+(defconst ii-font-lock-keywords
+  (list '("^[0-9]+++-[0-9]+-[0-9]+\\ [0-9]+:[0-9]+\\ \+.*?$" 0 'ii-face-give-voice t)
+        '("^[0-9]+++-[0-9]+-[0-9]+\\ [0-9]+:[0-9]+\\ -.*?$" 0 'ii-face-take-voice t)
+        '("^[0-9]+++-[0-9]+-[0-9]+\\ [0-9]+:[0-9]+\\ -!-.*" 0 'ii-face-shadow t)
+        '("^[0-9]+++-[0-9]+-[0-9]+\\ [0-9]+:[0-9]+\\ \<.+\>.*" 0 'ii-face-msg t)
+        '("^[0-9]+++-[0-9]+-[0-9]+\\ [0-9]+:[0-9]+\\ \<.*?\>" 0 'ii-face-nick t)
+        '("^[0-9]+++-[0-9]+-[0-9]+\\ [0-9]+:[0-9]+" 0 'ii-face-time t)
+        '("^[0-9]+++-[0-9]+-[0-9]+" 0 'ii-face-date t)
+        '("\.*?\" 0 'ii-face-bold append)
+        '("\.*?\" 0 'ii-face-underline append)
+        '("^ii>" 0 'ii-face-prompt t)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; database/file handling
@@ -175,7 +186,10 @@
   (set (make-local-variable 'ii-prompt-marker) (make-marker))
 
   ;; coloring
-  (setq font-lock-defaults '(ii-colored-keywords t))
+  (set (make-local-variable 'font-lock-defaults)
+       '((ii-font-lock-keywords) t))
+  (set (make-local-variable 'font-lock-keywords)
+       ii-font-lock-keywords)
 
   ;; init history-ring
   (history-ring-init)
