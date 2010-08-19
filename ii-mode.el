@@ -263,7 +263,7 @@
   (when (null ii-notifications) (error "No notifications"))
   (ii-visit-file-among ii-notifications))
 
-(defun ii-clear-notification ()
+(defun ii-clear-notifications ()
   "Removes notification on current buffer if any."
   (when (member (buffer-file-name) ii-notifications)
     (setf ii-notifications
