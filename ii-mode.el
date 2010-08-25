@@ -128,7 +128,7 @@
 	    (goto-char ii-prompt-marker)
 	    (insert-before-markers (propertize delta 'read-only t))
 	    (goto-char (- (point-max) marker-from-end)))))
-      (when (and (not (eq buffer (current-buffer))) ; Not currently selected.
+      (when (and (not (get-buffer-window buffer)) ; Not currently visible
 		 (or (ii-query-file-p file)         ; Either a personal query,
 		     (ii-contains-regexp delta)         ; or containing looked-for regexp
 		     (ii-special-channel file)))    ; or channel with highlight
