@@ -36,7 +36,7 @@
 (make-face 'ii-face-bold)
 (make-face 'ii-face-underline)
 
-(set-face-attribute 'ii-face-nick nil :foreground "#f00")
+(set-face-attribute 'ii-face-nick nil :foreground "chocolate2")
 (set-face-attribute 'ii-face-date nil :foreground "#999")
 (set-face-attribute 'ii-face-time nil :foreground "#bbb")
 (set-face-attribute 'ii-face-give-voice nil :foreground "#0ff")
@@ -55,8 +55,8 @@
         '("^[0-9]+++-[0-9]+-[0-9]+\\ [0-9]+:[0-9]+\\ \<.*?\>" 0 'ii-face-nick t)
         '("^[0-9]+++-[0-9]+-[0-9]+\\ [0-9]+:[0-9]+" 0 'ii-face-time t)
         '("^[0-9]+++-[0-9]+-[0-9]+" 0 'ii-face-date t)
-        '("\.*?\" 0 'ii-face-bold append)
-        '("\.*?\" 0 'ii-face-underline append)
+        '("\C-b.*?\C-b" 0 'ii-face-bold append)
+        '("\C-_.*?\C-_" 0 'ii-face-underline append)
         '("^ii>" 0 'ii-face-prompt t)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -152,6 +152,25 @@
     (when (string-match "\\(.*\\) CLOSE_WRITE,CLOSE out" line)
       (ii-handle-file-update (concat (match-string 1 line) "out")))))
 
+(defun ii-scroll-to-bottom ()
+  (interactive)
+  (end-of-buffer)
+  (recenter -1))
+
+(defun ii-window-scroll-function (window display-start)
+  "Taken from comint mode, originally ERC. <3 Dirty emacs hackarounds"
+  (when (and window (window-live-p window))
+    (let ((resize-mini-windows nil))
+      (save-selected-window
+	(select-window window)
+	(save-restriction
+	  (with-current-buffer (window-buffer window)
+	    (widen)
+	    (when (< (1- ii-prompt-marker) (point))
+	      (save-excursion
+		(recenter -1)
+		(sit-for 0)))))))))
+
 (defun ii-handle-file-update (file)
   "Called when a channel file is written to."
   (let ((delta      (get-file-delta file))
@@ -159,16 +178,20 @@
     (when delta
       (when buffer
 	;; Affected file is being changed and visited
-	(with-current-buffer buffer
-	  (let ((inhibit-read-only t)
-		(marker-from-end (- (point-max) (point))))
-	    (goto-char ii-prompt-marker)
-	    (insert-before-markers (propertize delta 'read-only t))
-	    (goto-char (- (point-max) marker-from-end)))))
-      (when (and (not (eq buffer (current-buffer))) ; Not currently selected.
+	(with-current-buffer buffer	  
+	  (let* ((point-past-prompt (< (1- ii-prompt-marker) (point)))
+		 (point-from-end (- (point-max) (point)))
+		 (inhibit-read-only t))	    
+	    (save-excursion
+	      (goto-char ii-prompt-marker)
+	      (insert-before-markers (propertize delta 'read-only t)))
+	    (when point-past-prompt
+	      (goto-char (- (point-max) point-from-end))))))
+      (when (and (or (not buffer)                      ; either no buffer or
+		     (not (get-buffer-window buffer))) ; buffer currently not visible
 		 (or (ii-query-file-p file)         ; Either a personal query,
 		     (ii-contains-regexp delta)         ; or containing looked-for regexp
-		     (ii-special-channel file)))    ; or channel with highlight
+		     (ii-special-channel file)))    ; or special channel
 	(ii-notify file)))))
 
 (defun get-file-delta (file)
@@ -192,6 +215,7 @@
 (defvar ii-mode-map nil)
 (setq ii-mode-map (let ((map (make-sparse-keymap)))
 		    (define-key map [remap save-buffer] (lambda () (interactive) (message "nop")))
+		    (define-key map [remap end-of-buffer] 'ii-scroll-to-bottom)
 		    (define-key map (kbd "C-a") 'ii-beginning-of-line)
 		    (define-key map (kbd "TAB") 'completion-at-point)
 		    (define-key map (kbd "M-p") 'ii-history-prev)
@@ -224,6 +248,7 @@
   ;; add hooks
   (add-hook 'window-configuration-change-hook 'ii-clear-notifications nil t)
   (add-hook 'completion-at-point-functions    'ii-completion-at-point nil t)
+  (add-hook 'window-scroll-functions          'ii-window-scroll-function nil t)
 
   ;; insert prompt and make log readonly.
   (goto-char (point-max))
@@ -236,6 +261,7 @@
     (put-text-property (1- (point-max)) (point-max) 'rear-nonsticky t))  
   (ii-setup-maybe)
   (goto-char (point-max))
+  (ii-scroll-to-bottom)
   (run-hooks ii-mode-hooks))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -259,6 +285,7 @@
   (if (> (point) ii-prompt-marker)
       (goto-char (+ ii-prompt-marker (length ii-prompt-text)))
     (move-beginning-of-line nil)))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;	     
 ;; history
@@ -292,7 +319,7 @@
                   ;; If VISIT is neither t nor nil nor a string,
                   ;; that means do not display the "Wrote file" message.
                   0)
-    (start-process-shell-command 
+    (start-process-shell-command
      "ii-sendmessage" nil
      (concat "cat " ii-temp-file " > \"" fifo-in "\""))
     (ii-set-channel-data channel-name 'last-write (current-time))
