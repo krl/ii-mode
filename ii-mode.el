@@ -128,10 +128,11 @@
 	    (goto-char ii-prompt-marker)
 	    (insert-before-markers (propertize delta 'read-only t))
 	    (goto-char (- (point-max) marker-from-end)))))
-      (when (and (not (get-buffer-window buffer)) ; Not currently visible
+      (when (and (or (not buffer)                      ; either no buffer or
+		     (not (get-buffer-window buffer))) ; buffer currently not visible
 		 (or (ii-query-file-p file)         ; Either a personal query,
 		     (ii-contains-regexp delta)         ; or containing looked-for regexp
-		     (ii-special-channel file)))    ; or channel with highlight
+		     (ii-special-channel file)))    ; or special channel
 	(ii-notify file)))))
 
 (defun get-file-delta (file)
