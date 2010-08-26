@@ -22,6 +22,51 @@
 (defvar ii-notify-channels nil
   "A list of channels to recieve special notification love. Uses the shortname form \"server/channel\".")
 
+;; history variables
+
+(defvar ii-history-ring-list '()
+    "holds the history")
+(defvar ii-tmp-history-ring-list '()
+  "copy of the variable `ii-history-ring', that is operated on
+until the next insertation onto history-ring")
+(defvar ii-history-pos '()
+  "holds the current position in history")
+
+;; fontification
+(make-face 'ii-face-nick)
+(make-face 'ii-face-date)
+(make-face 'ii-face-time)
+(make-face 'ii-face-give-voice)
+(make-face 'ii-face-take-voice)
+(make-face 'ii-face-shadow)
+(make-face 'ii-face-prompt)
+(make-face 'ii-face-msg)
+(make-face 'ii-face-bold)
+(make-face 'ii-face-underline)
+
+(set-face-attribute 'ii-face-nick nil :foreground "chocolate2")
+(set-face-attribute 'ii-face-date nil :foreground "#999")
+(set-face-attribute 'ii-face-time nil :foreground "#bbb")
+(set-face-attribute 'ii-face-give-voice nil :foreground "#0ff")
+(set-face-attribute 'ii-face-take-voice nil :foreground "#f0f")
+(set-face-attribute 'ii-face-shadow nil :foreground "#ccc")
+(set-face-attribute 'ii-face-prompt nil :foreground "#0f0")
+(set-face-attribute 'ii-face-msg nil :foreground "#fff")
+(set-face-attribute 'ii-face-bold nil :bold t)
+(set-face-attribute 'ii-face-underline nil :underline t)
+
+(defconst ii-font-lock-keywords
+  (list '("^[0-9]+++-[0-9]+-[0-9]+\\ [0-9]+:[0-9]+\\ \+.*?$" 0 'ii-face-give-voice t)
+        '("^[0-9]+++-[0-9]+-[0-9]+\\ [0-9]+:[0-9]+\\ -.*?$" 0 'ii-face-take-voice t)
+        '("^[0-9]+++-[0-9]+-[0-9]+\\ [0-9]+:[0-9]+\\ -!-.*" 0 'ii-face-shadow t)
+        '("^[0-9]+++-[0-9]+-[0-9]+\\ [0-9]+:[0-9]+\\ \<.+\>.*" 0 'ii-face-msg t)
+        '("^[0-9]+++-[0-9]+-[0-9]+\\ [0-9]+:[0-9]+\\ \<.*?\>" 0 'ii-face-nick t)
+        '("^[0-9]+++-[0-9]+-[0-9]+\\ [0-9]+:[0-9]+" 0 'ii-face-time t)
+        '("^[0-9]+++-[0-9]+-[0-9]+" 0 'ii-face-date t)
+        '("\C-b.*?\C-b" 0 'ii-face-bold append)
+        '("\C-_.*?\C-_" 0 'ii-face-underline append)
+        '("^ii>" 0 'ii-face-prompt t)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; database/file handling
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -37,7 +82,7 @@
   (match-string 1 long))
 
 (defun ii-longname (short)
-   (concat ii-irc-directory short "/out"))
+  (concat ii-irc-directory short "/out"))
 
 (defun ii-filesize (file)
   (nth 7 (file-attributes file)))
@@ -181,6 +226,8 @@
 		    (define-key map [remap end-of-buffer] 'ii-scroll-to-bottom)
 		    (define-key map (kbd "C-a") 'ii-beginning-of-line)
 		    (define-key map (kbd "TAB") 'completion-at-point)
+		    (define-key map (kbd "M-p") 'ii-history-prev)
+		    (define-key map (kbd "M-n") 'ii-history-next)
 		    (define-key map (kbd "RET") 'ii-send-message)
 		    map))
 
@@ -196,6 +243,15 @@
 
   ;; local variables.  
   (set (make-local-variable 'ii-prompt-marker) (make-marker))
+
+  ;; coloring
+  (set (make-local-variable 'font-lock-defaults)
+       '((ii-font-lock-keywords) t))
+  (set (make-local-variable 'font-lock-keywords)
+       ii-font-lock-keywords)
+
+  ;; init history-ring
+  (ii-history-ring-init)
 
   ;; add hooks
   (add-hook 'window-configuration-change-hook 'ii-clear-notifications nil t)
@@ -238,6 +294,55 @@
       (goto-char (+ ii-prompt-marker (length ii-prompt-text)))
     (move-beginning-of-line nil)))
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;	     
+;; history
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun ii-history-ring-init ()
+  "initialize a history ring for current buffer"  
+  (set (make-local-variable 'ii-history-ring-list) '())
+  (set (make-local-variable 'ii-tmp-history-ring-list) '())
+  (set (make-local-variable 'ii-history-pos) 0))
+
+(defun ii-history-ring-access (elem beg end)
+  "access the history ring
+
+ELEM should hold an positive or negative integer.
+\"-1\" equals return the previous element and \"1\" equals return the next
+element in ring
+
+BEG and END should be the beginnig and ending point of prompt"
+
+  (when (equal (length ii-history-ring-list)
+               (length ii-tmp-history-ring-list))
+    (push "" ii-tmp-history-ring-list))
+  (let ((current-line (buffer-substring beg end)))
+    (when (and (nth (+ ii-history-pos elem) ii-tmp-history-ring-list)
+               (>= (+ ii-history-pos elem) 0))
+      (setcar (nthcdr ii-history-pos ii-tmp-history-ring-list) current-line)
+      (setq ii-history-pos (+ ii-history-pos elem))
+      (delete-region beg end)
+      (insert (nth ii-history-pos ii-tmp-history-ring-list)))))
+
+(defun ii-history-ring-add (new)
+  "add NEW to history ring"
+  (unless (equal new (car ii-history-ring-list))
+    (push new ii-history-ring-list))
+  (setq ii-tmp-history-ring-list '())
+  (setq ii-history-pos 0)
+  (setq ii-tmp-history-ring-list (copy-list ii-history-ring-list)))
+
+(defun ii-history-prev ()
+  "put the previous message in history-ring at prompt"
+  (interactive)
+  (ii-history-ring-access 1 (+ ii-prompt-marker (length ii-prompt-text)) (point-max)))
+
+(defun ii-history-next ()
+  "put the next message in history-ring at prompt"
+  (interactive)
+  (ii-history-ring-access -1 (+ ii-prompt-marker (length ii-prompt-text)) (point-max)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; sending messages
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -246,20 +351,22 @@
   "Sends a message to the 'in' file in channel files directory."
   (interactive)
   (let* ((channel-name (buffer-file-name))
-	 (fifo-in (concat (file-name-directory channel-name) "in")))
+	 (fifo-in (concat (file-name-directory channel-name) "in"))
+         (msg (ii-clear-and-return-prompt)))
     (unless (file-exists-p fifo-in)
       (error "Invalid channel directory"))
     ;; semi-hack: catting tmpfile asynchronously to fifo to prevent lockups if
     ;; nothing is reading in the other end
-    (write-region (concat (ii-clear-and-return-prompt) "\n")
-		  nil ii-temp-file nil 
-		  ;; If VISIT is neither t nor nil nor a string,
-		  ;; that means do not display the "Wrote file" message.
-		  0)
+    (write-region (concat msg "\n")
+                  nil ii-temp-file nil 
+                  ;; If VISIT is neither t nor nil nor a string,
+                  ;; that means do not display the "Wrote file" message.
+                  0)
     (start-process-shell-command
      "ii-sendmessage" nil
      (concat "cat " ii-temp-file " > \"" fifo-in "\""))
-    (ii-set-channel-data channel-name 'last-write (current-time))))
+    (ii-set-channel-data channel-name 'last-write (current-time))
+    (ii-history-ring-add msg)))
 
 (defun ii-clear-and-return-prompt ()
   "Returns the content of prompt while clearing it."
