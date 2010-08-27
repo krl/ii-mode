@@ -4,8 +4,9 @@ ii-mode is an Emacs mode for handling files created by ii. It can help you to st
 The model of using Emacs for interfaces to external programs, rather than running them inside the elisp environment itself also seems more elegant.
 
 This allows for a much more detached use of irc, not having to keep one buffer open for each channel, but still getting notified if someone pings you.
-* Credits
+* Credits/contact
 Written by Kristoffer Ström, with significant contributions by mang @ http://github.com/mang/
+Questions can be directed at email host rymdkoloni.se, with local part kristoffer
 * License
 GPL v3 or later.
 * Dependencies
