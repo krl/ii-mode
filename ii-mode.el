@@ -32,6 +32,15 @@ until the next insertation onto history-ring")
 (defvar ii-history-pos '()
   "holds the current position in history")
 
+(defvar ii-chunk-size (* 256 1024)
+  "The size of backlog chunk to paste into buffer")
+(defvar ii-backlog-offset nil
+  "buffer local variable keeping track of backlog insert offset.")
+(defvar ii-topline-buffer nil
+  "buffer local variable keeping track of incomplete top line of backlog")
+(defvar ii-buffer-logfile nil
+  "buffer local variable keeping track of incomplete top line of backlog")
+
 ;; fontification
 (make-face 'ii-face-nick)
 (make-face 'ii-face-date)
@@ -93,7 +102,7 @@ until the next insertation onto history-ring")
 			    (concat "find " ii-irc-directory " -name out")) "\n")))
 
 (defun ii-get-names ()
-  (let ((namesfile (concat (file-name-directory (buffer-file-name)) "names")))
+  (let ((namesfile (concat (file-name-directory ii-buffer-logfile) "names")))
     (when namesfile
       (split-string
        (with-temp-buffer     
@@ -121,13 +130,9 @@ until the next insertation onto history-ring")
 
 (defun ii-visit-file-among (list)
   "Takes a list of channel filenames and selects one to visit."
-  (let* ((file (ii-longname
-		(ido-completing-read 
-		 "find: " (mapcar 'ii-shortname list) nil t)))
-	 (buffer (some (lambda (x) (when (string= (buffer-file-name x) file) x)) (buffer-list))))
-    (if buffer
-	(switch-to-buffer buffer)
-      (find-file file))))
+  (ii-open-file-buffer (ii-longname
+			(ido-completing-read 
+			 "find: " (mapcar 'ii-shortname list) nil t))))
 
 (defun ii-visit-server-file ()
   "Selects among server channel files"
@@ -152,9 +157,9 @@ until the next insertation onto history-ring")
     (ii-cache-channel-sizes)
     (setf ii-inotify-process
 	  (start-process "ii-inotify" nil "inotifywait" "-mr" ii-irc-directory))
-    (set-process-filter ii-inotify-process 'ii-handle-inotify)))
+    (set-process-filter ii-inotify-process 'ii-inotify-filter)))
 
-(defun ii-handle-inotify (process output)
+(defun ii-inotify-filter (process output)
   "Split inotify output into lines and dispatch on relevant changes"
   (dolist (line (split-string output "\n"))
     (when (string-match "\\(.*\\) CLOSE_WRITE,CLOSE out" line)
@@ -182,11 +187,11 @@ until the next insertation onto history-ring")
 (defun ii-handle-file-update (file)
   "Called when a channel file is written to."
   (let ((delta      (get-file-delta file))
-  	(buffer (get-file-buffer file)))
+  	(buffer (ii-buffer-open-p file)))
     (when delta
       (when buffer
 	;; Affected file is being changed and visited
-	(with-current-buffer buffer	  
+	(with-current-buffer buffer
 	  (let* ((point-past-prompt (< (1- ii-prompt-marker) (point)))
 		 (point-from-end (- (point-max) (point)))
 		 (inhibit-read-only t))	    
@@ -222,7 +227,6 @@ until the next insertation onto history-ring")
 
 (defvar ii-mode-map nil)
 (setq ii-mode-map (let ((map (make-sparse-keymap)))
-		    (define-key map [remap save-buffer] (lambda () (interactive) (message "nop")))
 		    (define-key map [remap end-of-buffer] 'ii-scroll-to-bottom)
 		    (define-key map (kbd "C-a") 'ii-beginning-of-line)
 		    (define-key map (kbd "TAB") 'completion-at-point)
@@ -233,16 +237,15 @@ until the next insertation onto history-ring")
 
 (defun ii-mode-init ()
   (use-local-map ii-mode-map)
-  ;; disable autosave
-  ;; TODO: disabling "modified; kill anyway?"
-  (setf buffer-auto-save-file-name nil)
-
-  ;; rename buffer
-  (when (string= (buffer-name) "out")
-    (rename-buffer (generate-new-buffer-name (ii-channel-name (buffer-file-name)))))
 
   ;; local variables.  
   (set (make-local-variable 'ii-prompt-marker) (make-marker))
+  (set (make-local-variable 'ii-backlog-offset) nil)
+  (set (make-local-variable 'ii-topline-buffer) nil)
+  (make-local-variable 'ii-buffer-logfile)
+
+  ;; bind functions
+  (set (make-local-variable 'isearch-wrap-function) 'ii-isearch-autogrow)
 
   ;; coloring
   (set (make-local-variable 'font-lock-defaults)
@@ -261,6 +264,8 @@ until the next insertation onto history-ring")
   ;; insert prompt and make log readonly.
   (goto-char (point-max))
   (set-marker ii-prompt-marker (point))
+
+  (ii-insert-history-chunk)
   (insert ii-prompt-text)
   ;; make it all readonly
   (let ((inhibit-read-only t))
@@ -350,8 +355,7 @@ BEG and END should be the beginnig and ending point of prompt"
 (defun ii-send-message ()
   "Sends a message to the 'in' file in channel files directory."
   (interactive)
-  (let* ((channel-name (buffer-file-name))
-	 (fifo-in (concat (file-name-directory channel-name) "in"))
+  (let* ((fifo-in (concat (file-name-directory ii-buffer-logfile) "in"))
          (msg (ii-clear-and-return-prompt)))
     (unless (file-exists-p fifo-in)
       (error "Invalid channel directory"))
@@ -365,7 +369,7 @@ BEG and END should be the beginnig and ending point of prompt"
     (start-process-shell-command
      "ii-sendmessage" nil
      (concat "cat " ii-temp-file " > \"" fifo-in "\""))
-    (ii-set-channel-data channel-name 'last-write (current-time))
+    (ii-set-channel-data ii-buffer-logfile 'last-write (current-time))
     (ii-history-ring-add msg)))
 
 (defun ii-clear-and-return-prompt ()
@@ -398,12 +402,61 @@ BEG and END should be the beginnig and ending point of prompt"
 
 (defun ii-clear-notifications ()
   "Removes notification on current buffer if any."
-  (when (member (buffer-file-name) ii-notifications)
+  (when (member ii-buffer-logfile ii-notifications)
     (setf ii-notifications
-	  (remove (buffer-file-name) ii-notifications)))
-
+	  (remove ii-buffer-logfile ii-notifications)))
   (when (null ii-notifications) 
     (setf global-mode-string "")))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; open-partial
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun ii-buffer-open-p (file)
+  (when (buffer-live-p (ii-get-channel-data file 'buffer))
+    (ii-get-channel-data file 'buffer)))
+
+(defun ii-get-channel-buffer (file)
+  (or (ii-buffer-open-p file)      
+      (let ((buffer (get-buffer-create (ii-channel-name file))))
+	(with-current-buffer buffer
+	  (setf ii-buffer-logfile file)
+	  (ii-mode)
+	  (ii-set-channel-data file 'buffer buffer))
+	buffer)))
+
+(defun ii-open-file-buffer (file)
+  (switch-to-buffer (ii-get-channel-buffer file)))
+
+(defun ii-insert-history-chunk ()
+  "inserts an additional chunk of history into buffer, keeps track of its state through buffer-local variables"
+  (let* ((inhibit-read-only t)
+	 (file              ii-buffer-logfile)
+	 (size              (ii-filesize file))
+	 (end-offset        (1+ (or ii-backlog-offset size)))
+	 (start-offset      (max (- end-offset ii-chunk-size) 0)))
+    (unless (= end-offset 0)
+      (save-excursion
+	(goto-char (point-min))
+	(save-excursion
+	  (insert-before-markers (or ii-topline-buffer "")))
+	(goto-char (point-min))
+	(save-excursion
+	  (insert-before-markers
+	   (with-temp-buffer
+	     (insert-file-contents file nil start-offset end-offset)
+	     (buffer-string))))
+	(unless (= start-offset 0)
+	  ;; unless the whole file is read, delete and buffer the first line
+	  (save-excursion
+	    (goto-char (point-min))
+	    (setf ii-topline-buffer (substring (buffer-string) (point) (line-end-position)))
+	    (delete-region (point) (1+ (line-end-position)))))
+	(setf ii-backlog-offset start-offset)))))
+
+(defun ii-isearch-autogrow ()
+  (unless isearch-forward
+    (ii-insert-history-chunk)))
 
 ;; leverera
 

@@ -18,30 +18,29 @@ Put ii-mode.el in your emacs path and write something like this in your init fil
 
 : (require 'ii-mode)
 :  (setf ii-irc-directory "/home/username/irc/")
-:  (add-to-list 'auto-mode-alist `(,(concat ii-irc-directory ".*/out\\'") . ii-mode))
 
 To customize behavior you can use ii-mode-hook, this is what I do:
 
-: (add-hook 'ii-mode-hook (lambda () 
-:                           (visual-line-mode)                          
+: (add-hook 'ii-mode-hook (lambda ()
+:                           (visual-line-mode)
 :                           (local-set-key (kbd "RET") 'newline)
 :                           (local-set-key (kbd "C-c C-s") 'ii-send-message)))
 
 Look in the source variable definitions for customizing face colors etc.
 
+To visit any of the channels tracked by ii-mode use 'ii-visit-channel-file, to visit only the server channels use 'ii-visit-server-file.
+
+* Automatic backlogging
+ii-mode inserts ii-chunk-size bytes of backlog into the buffer on visiting a channel buffer. This variable can be customized to save memory.
+
+It also attaches a hook into reverse isearch wrap, that inserts more of the log if your search wraps, thus allowing for searching through the whole channel log. This feature still needs some polishing.
 * Notification
 By default, you only get notified on user queries. To ii-mode, this is channels with ii-directories not starting with "#" or "&". To get notified on mentioning of your user name or favourite dish just set the variable 'ii-notify-regexps in your config like this:
 
 : (setf ii-notify-regexps '("\\bkrl\\b" "\\bkrrl\\b" "\\basparagus\\b"))
 
-If you have a channel you want to keep extra track of, put it in the list 'ii-notify-channels and you will be bugged when it's updated.
+If you have a channel you want to keep extra track of, put it in the list 'ii-notify-channels and you will be bugged whenever it's updated.
 
 : (setf ii-notify-channels '("irc.efnet.net/#data_kraft"))
 
 You will se a "*ii*" in the global modeline when a notification is activated. To see which and/or to visit them, bind the command 'ii-visit-notified-file to a key sequence of choice.
-
-To visit any of the channels tracked by ii-mode use 'ii-visit-channel-file, and to visit any of the server channels use 'ii-visit-server-file.
-
-* Left to do 
-- fix the annoying buffer modified really kill etc things.
-
