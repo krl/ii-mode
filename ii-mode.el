@@ -386,7 +386,7 @@ BEG and END should be the beginnig and ending point of prompt"
 (defun ii-notify (file)
   (unless (member file ii-notifications)
     (push file ii-notifications))
-  (setf global-mode-string "*ii*"))
+  (add-to-list 'global-mode-string "*ii*"))
 
 (defun ii-contains-regexp (lines)
   (some (lambda (x) (string-match x lines)) ii-notify-regexps))
@@ -406,7 +406,7 @@ BEG and END should be the beginnig and ending point of prompt"
     (setf ii-notifications
 	  (remove ii-buffer-logfile ii-notifications)))
   (when (null ii-notifications) 
-    (setf global-mode-string "")))
+    (setf global-mode-string (delete "*ii*" global-mode-string))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; open-partial
