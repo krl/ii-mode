@@ -1,5 +1,3 @@
-(defvar ii-temp-file     "/tmp/iie.tmp"
-  "Temporary file to save messages before catting them into ii input fifos")
 (defvar ii-irc-directory "~/irc/"
   "Directory to look for ii files in. end with slash.")
 (defvar ii-prompt-marker nil
@@ -11,6 +9,9 @@
 (defvar ii-channel-data (make-hash-table :test 'equal)
   "Keeps track of channel data")
 (defvar ii-mode-hooks nil)
+
+(defvar ii-ssh-domain nil
+  "Set this to have ii-mode run against another domain over ssh")
 
 ;; standard notifications
 (defvar ii-notifications nil
@@ -80,6 +81,37 @@ until the next insertation onto history-ring")
 ;; database/file handling
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defun ii-expand-command (command)
+  (if ii-ssh-domain 
+      (concat "ssh " ii-ssh-domain " \""
+	      command
+	      "\"")
+    command))
+
+(defun ii-escape (text)
+  (apply 'string
+	 (reduce (lambda (x y)
+		   (append x
+			   (cond ((member y '(?# ?\; ?! ?\( ?\) ?' ?| ?< ?> ?&))
+				  (list ?\\ y))
+				 ((= y ?\\)
+				  (list ?\\ ?\\ y))
+				 ((= y ?\")
+				  (list ?\\ ?\\ ?\\ y))
+				 (t
+				  (list y)))))
+		 (string-to-list text)
+		 :initial-value nil)))
+
+(defun ii-command-sync (command)
+  (shell-command-to-string (ii-expand-command command)))
+
+(defun ii-command (command &optional filter)
+  (let ((process (start-process-shell-command "ii-command" nil (ii-expand-command command))))
+    (when filter
+      (set-process-filter process filter))
+    process))
+
 (defun ii-query-file-p (file)
   (string-match (concat "^" ii-irc-directory "[^/]+/[^#&][^/]+/out$") file))
 
@@ -93,22 +125,35 @@ until the next insertation onto history-ring")
 (defun ii-longname (short)
   (concat ii-irc-directory short "/out"))
 
-(defun ii-filesize (file)
-  (nth 7 (file-attributes file)))
+(defun ii-cache-files ()
+  (interactive)
+  (dolist (size-string (split-string 
+			(ii-command-sync
+			 (concat "find " 
+				 ii-irc-directory
+				 " -name out | xargs stat -c%s\\ %n")) "\n"))
+    (unless (string= size-string "")
+      (destructuring-bind (size file) (split-string size-string)
+	(ii-set-channel-data file 'size (string-to-number size)))))
+  ;; cache names
+  (dolist (line (split-string (ii-command-sync (concat "find "
+						       ii-irc-directory
+						       " -name names | xargs grep -e '.*'")) "\n"))
+    (let ((file-names (split-string line":")))
+      (when (= (length file-names) 2)
+	(ii-set-channel-data (concat (substring (first file-names) 0 -5) "out") 
+			     'names (split-string (or (second file-names) "")))))))
 
 (defun ii-get-channels ()
   (remove-if (lambda (x) (string= x "")) ; no empty strings
-	     (split-string (shell-command-to-string
+	     (split-string (ii-command-sync
 			    (concat "find " ii-irc-directory " -name out")) "\n")))
 
-(defun ii-get-names ()
-  (let ((namesfile (concat (file-name-directory ii-buffer-logfile) "names")))
-    (when namesfile
-      (split-string
-       (with-temp-buffer     
-	 (insert-file namesfile)
-	 (buffer-string))
-       "\n" t))))
+(defun ii-parse-names (file data)
+  ;;(message "ii-parse-names file:%s data:%s" file data)
+  (ii-set-channel-data (concat (substring file 0 -5) "out")
+  		       'names
+  		       (split-string data)))
 
 (defun ii-set-channel-data (channel key value)
   "Sets data for channel"
@@ -121,12 +166,7 @@ until the next insertation onto history-ring")
   "Gets data for channel"
   (let ((channel-data (gethash channel ii-channel-data)))
     (when channel-data
-      (gethash key channel-data))))
-
-(defun ii-cache-channel-sizes ()
-  "Caches file sizes."
-  (dolist (outfile (ii-get-channels))
-    (ii-set-channel-data outfile 'size (ii-filesize outfile))))
+      (gethash key channel-data))))     
 
 (defun ii-visit-file-among (list)
   "Takes a list of channel filenames and selects one to visit."
@@ -154,70 +194,86 @@ until the next insertation onto history-ring")
   "If not already running, start the process and setup buffer sizes."
   (unless (and ii-inotify-process
 	       (= (process-exit-status ii-inotify-process) 0))
-    (ii-cache-channel-sizes)
+    (ii-cache-files)
     (setf ii-inotify-process
-	  (start-process "ii-inotify" nil "inotifywait" "-mr" ii-irc-directory))
-    (set-process-filter ii-inotify-process 'ii-inotify-filter)))
+	  ;; goddamn this was annoying to get to work properly.
+	  ;; get updated files as space separated: newsize path
+	  (ii-command (concat "inotifywait -mre close_write --format %w%f "
+			      ii-irc-directory
+			      " 2> /dev/null | xargs -L1 stat -c%s\\ %n")
+		      'ii-handle-inotify))))
 
-(defun ii-inotify-filter (process output)
-  "Split inotify output into lines and dispatch on relevant changes"
-  (dolist (line (split-string output "\n"))
-    (when (string-match "\\(.*\\) CLOSE_WRITE,CLOSE out" line)
-      (ii-handle-file-update (concat (match-string 1 line) "out")))))
+(defun ii-handle-inotify (_ data)
+  (dolist (line (split-string data "\n"))
+    (unless (string= line "")
+      (destructuring-bind (new-size file) (split-string line " ")
+	;; what kind of file is it?
+	(cond ((string= (substring file -3) "out")
+	       (ii-get-file-delta file 
+			      (string-to-number new-size)
+			      'ii-handle-delta))
+	      ((string= (substring file -5) "names")
+	       (ii-get-file-chunk file
+	       			  0 (string-to-number new-size)
+	       			  'ii-parse-names)))))))
 
-(defun ii-scroll-to-bottom ()
-  (interactive)
-  (end-of-buffer)
-  (recenter -1))
+(defun ii-get-file-chunk (file start-offset length filter)
+  ;;(message "g-f-c file: %s start-offset: %i length: %i" file start-offset length)
+  ;;(message "ii-get-file-chunk file:%s start-offset:%i length:%i" file start-offset length)
+  (lexical-let ((file   file)
+		(filter filter)
+		(buffer "")
+		(count  0)
+		(length length))
+    (ii-command (format "dd ibs=1 if=%s skip=%i count=%i 2> /dev/null" 
+			(ii-escape file) start-offset length)
+		(lambda (_ data)
+		  ;; (when (string= (substring file 0 -5) "names")
+		  ;;   (message "ii-got-chunk %s of %s\n----------\n%s" count length data))
 
-(defun ii-window-scroll-function (window display-start)
-  "Taken from comint mode, originally ERC. <3 Dirty emacs hackarounds"
-  (when (and window (window-live-p window))
-    (let ((resize-mini-windows nil))
-      (save-selected-window
-	(select-window window)
-	(save-restriction
-	  (with-current-buffer (window-buffer window)
-	    (widen)
-	    (when (< (1- ii-prompt-marker) (point))
-	      (save-excursion
-		(recenter -1)
-		(sit-for 0)))))))))
+		  (setf buffer (concat buffer data))
+		  (incf count (string-bytes data))
+		  ;; we might need to cache the data to get it in one chunk
+		  ;; TODO this is not very exact, allow a bit of unsharpness
+		  ;; with - length 32
+		  ;; (message "%i - of %i" count length)
+		  (when (>= count (- length 32))
+		    (funcall filter file buffer))))))
 
-(defun ii-handle-file-update (file)
-  "Called when a channel file is written to."
-  (let ((delta      (get-file-delta file))
-  	(buffer (ii-buffer-open-p file)))
-    (when delta
-      (when buffer
-	;; Affected file is being changed and visited
-	(with-current-buffer buffer
-	  (let* ((point-past-prompt (< (1- ii-prompt-marker) (point)))
-		 (point-from-end (- (point-max) (point)))
-		 (inhibit-read-only t))	    
-	    (save-excursion
-	      (goto-char ii-prompt-marker)
-	      (insert-before-markers (propertize delta 'read-only t)))
-	    (when point-past-prompt
-	      (goto-char (- (point-max) point-from-end))))))
-      (when (and (or (not buffer)                      ; either no buffer or
-		     (not (get-buffer-window buffer))) ; buffer currently not visible
-		 (or (ii-query-file-p file)         ; Either a personal query,
-		     (ii-contains-regexp delta)         ; or containing looked-for regexp
-		     (ii-special-channel file)))    ; or special channel
-	(ii-notify file)))))
+(defun ii-get-file-chunk-sync (file start-offset length)
+  (ii-command-sync (format "dd ibs=1 if=%s skip=%i count=%i 2> /dev/null" 
+			   (ii-escape file) start-offset length)))
 
-(defun get-file-delta (file)
+(defun ii-get-file-delta (file new-size filter)
   "Gets the end of the file that has grown."
-  (let ((old-size (or (ii-get-channel-data file 'size) 0))
-  	(new-size (ii-filesize file)))
-    ;; update old value
+  (let ((old-size (or (ii-get-channel-data file 'size) 0)))
+	;; update old value
     (unless (= old-size new-size)
       (ii-set-channel-data file 'size new-size)
-      (with-temp-buffer
-	(save-excursion
-	  (insert-file-contents file nil old-size new-size)
-	  (buffer-string))))))
+      (ii-get-file-chunk file old-size (- new-size old-size) filter))))
+
+(defun ii-handle-delta (file delta)
+  "Called when a channel file is written to."
+  (let ((buffer (ii-get-buffer file)))
+    (when buffer
+      ;; Affected file is being changed and visited
+      (with-current-buffer buffer
+  	(let* ((point-past-prompt (< (1- ii-prompt-marker) (point)))
+  	       (point-from-end (- (point-max) (point)))
+  	       (inhibit-read-only t))	    
+  	  (save-excursion
+  	    (goto-char ii-prompt-marker)
+  	    (insert-before-markers (propertize delta 'read-only t)))
+  	  (when point-past-prompt
+  	    (goto-char (- (point-max) point-from-end))))))
+    ;; Notify! but when? Listen up I'll tell you!
+    (when (and (or (not buffer)                      ; either no buffer or
+  		   (not (get-buffer-window buffer))) ; buffer currently not visible
+  	       (or (ii-query-file-p file)         ; Either a personal query,
+  		   (ii-contains-regexp delta)         ; or containing looked-for regexp
+  		   (ii-special-channel file)))    ; or special channel
+      (ii-notify file))))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; mode
@@ -261,21 +317,44 @@ until the next insertation onto history-ring")
   (add-hook 'completion-at-point-functions    'ii-completion-at-point nil t)
   (add-hook 'window-scroll-functions          'ii-window-scroll-function nil t)
 
+  ;; setup
+
+  (ii-setup-maybe)
+  (goto-char (point-max))
+  (ii-scroll-to-bottom)
+  (run-hooks ii-mode-hooks)
+
   ;; insert prompt and make log readonly.
   (goto-char (point-max))
   (set-marker ii-prompt-marker (point))
 
-  (ii-insert-history-chunk)
   (insert ii-prompt-text)
+  (ii-insert-history-chunk)
+
   ;; make it all readonly
   (let ((inhibit-read-only t))
     (put-text-property (point-min) (1+ (point-min)) 'front-sticky t)
     (put-text-property (point-min) (point-max) 'read-only t)
-    (put-text-property (1- (point-max)) (point-max) 'rear-nonsticky t))  
-  (ii-setup-maybe)
-  (goto-char (point-max))
-  (ii-scroll-to-bottom)
-  (run-hooks ii-mode-hooks))
+    (put-text-property (1- (point-max)) (point-max) 'rear-nonsticky t)))
+
+(defun ii-scroll-to-bottom ()
+  (interactive)
+  (end-of-buffer)
+  (recenter -1))
+
+(defun ii-window-scroll-function (window display-start)
+  "Taken from comint mode, originally ERC. <3 Dirty emacs hackarounds"
+  (when (and window (window-live-p window))
+    (let ((resize-mini-windows nil))
+      (save-selected-window
+	(select-window window)
+	(save-restriction
+	  (with-current-buffer (window-buffer window)
+	    (widen)
+	    (when (< (1- ii-prompt-marker) (point))
+	      (save-excursion
+		(recenter -1)
+		(sit-for 0)))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; completion
@@ -287,7 +366,7 @@ until the next insertation onto history-ring")
 	  (forward-char)
 	  (point))
 	(point)
-	(ii-get-names)))
+	(or (ii-get-channel-data ii-buffer-logfile 'names) '())))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; movement
@@ -298,7 +377,6 @@ until the next insertation onto history-ring")
   (if (> (point) ii-prompt-marker)
       (goto-char (+ ii-prompt-marker (length ii-prompt-text)))
     (move-beginning-of-line nil)))
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;	     
 ;; history
@@ -357,18 +435,11 @@ BEG and END should be the beginnig and ending point of prompt"
   (interactive)
   (let* ((fifo-in (concat (file-name-directory ii-buffer-logfile) "in"))
          (msg (ii-clear-and-return-prompt)))
-    (unless (file-exists-p fifo-in)
-      (error "Invalid channel directory"))
-    ;; semi-hack: catting tmpfile asynchronously to fifo to prevent lockups if
-    ;; nothing is reading in the other end
-    (write-region (concat msg "\n")
-                  nil ii-temp-file nil 
-                  ;; If VISIT is neither t nor nil nor a string,
-                  ;; that means do not display the "Wrote file" message.
-                  0)
-    (start-process-shell-command
-     "ii-sendmessage" nil
-     (concat "cat " ii-temp-file " > \"" fifo-in "\""))
+    ;; (unless (ii-file-exists-p fifo-in)
+    ;;   (error "Invalid channel directory"))
+    ;; need mkfifo in before, in order to not create a regular in-file and mess up
+    (ii-command (concat "mkfifo " (ii-escape fifo-in) " 2> /dev null;"
+			"echo " (ii-escape msg) " > " (ii-escape fifo-in)))
     (ii-set-channel-data ii-buffer-logfile 'last-write (current-time))
     (ii-history-ring-add msg)))
 
@@ -412,12 +483,12 @@ BEG and END should be the beginnig and ending point of prompt"
 ;; open-partial
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun ii-buffer-open-p (file)
+(defun ii-get-buffer (file)
   (when (buffer-live-p (ii-get-channel-data file 'buffer))
     (ii-get-channel-data file 'buffer)))
 
 (defun ii-get-channel-buffer (file)
-  (or (ii-buffer-open-p file)      
+  (or (ii-get-buffer file)
       (let ((buffer (get-buffer-create (ii-channel-name file))))
 	(with-current-buffer buffer
 	  (setf ii-buffer-logfile file)
@@ -430,11 +501,16 @@ BEG and END should be the beginnig and ending point of prompt"
 
 (defun ii-insert-history-chunk ()
   "inserts an additional chunk of history into buffer, keeps track of its state through buffer-local variables"
-  (let* ((inhibit-read-only t)
-	 (file              ii-buffer-logfile)
-	 (size              (ii-filesize file))
+  (let* ((size              (ii-get-channel-data ii-buffer-logfile 'size))
 	 (end-offset        (1+ (or ii-backlog-offset size)))
 	 (start-offset      (max (- end-offset ii-chunk-size) 0)))
+    (ii-insert-text-top 
+     (ii-get-file-chunk-sync ii-buffer-logfile start-offset (- end-offset start-offset))
+     start-offset
+     end-offset)))
+
+(defun ii-insert-text-top (data start-offset end-offset)
+  (let ((inhibit-read-only t))
     (unless (= end-offset 0)
       (save-excursion
 	(goto-char (point-min))
@@ -442,12 +518,10 @@ BEG and END should be the beginnig and ending point of prompt"
 	  (insert-before-markers (or ii-topline-buffer "")))
 	(goto-char (point-min))
 	(save-excursion
-	  (insert-before-markers
-	   (with-temp-buffer
-	     (insert-file-contents file nil start-offset end-offset)
-	     (buffer-string))))
+	  (insert-before-markers data))
 	(unless (= start-offset 0)
-	  ;; unless the whole file is read, delete and buffer the first line
+	  ;; unless the whole file is read, delete and buffer the topmost line
+	  ;; this is to prevent incomplete lines from showing up at the top
 	  (save-excursion
 	    (goto-char (point-min))
 	    (setf ii-topline-buffer (substring (buffer-string) (point) (line-end-position)))
