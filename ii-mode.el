@@ -92,7 +92,7 @@ until the next insertation onto history-ring")
   (apply 'string
 	 (reduce (lambda (x y)
 		   (append x
-			   (cond ((member y '(?# ?\; ?! ?\( ?\) ?' ?| ?< ?> ?&))
+			   (cond ((member y '(?# ?\; ?! ?\( ?\) ?' ?| ?< ?> ?& ?* ?~))
 				  (list ?\\ y))
 				 ((= y ?\\)
 				  (list ?\\ ?\\ y))
