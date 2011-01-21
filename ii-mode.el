@@ -122,6 +122,12 @@ until the next insertation onto history-ring")
   (string-match (concat "^" ii-irc-directory "\\(.*\\)/out$") long)
   (match-string 1 long))
 
+(defun ii-names-to-out (namesfile)
+  (concat (substring namesfile 0 -5) "out"))
+
+(defun ii-out-to-names (outfile)
+  (concat (substring outfile 0 -3) "names"))
+
 (defun ii-longname (short)
   (concat ii-irc-directory short "/out"))
 
@@ -141,8 +147,13 @@ until the next insertation onto history-ring")
 						       " -name names | xargs grep -e '.*'")) "\n"))
     (let ((file-names (split-string line":")))
       (when (= (length file-names) 2)
-	(ii-set-channel-data (concat (substring (first file-names) 0 -5) "out") 
+	(ii-set-channel-data (ii-names-to-out (first file-names))
 			     'names (split-string (or (second file-names) "")))))))
+
+(defun ii-cache-names-for (outfile)
+  (let ((namesfile (ii-out-to-names outfile)))    
+    (ii-parse-names namesfile
+		    (ii-command-sync (concat "cat " namesfile " 2> /dev/null")))))
 
 (defun ii-get-channels ()
   (remove-if (lambda (x) (string= x "")) ; no empty strings
@@ -150,20 +161,18 @@ until the next insertation onto history-ring")
 			    (concat "find " ii-irc-directory " -name out")) "\n")))
 
 (defun ii-parse-names (file data)
-  ;;(message "ii-parse-names file:%s data:%s" file data)
-  (ii-set-channel-data (concat (substring file 0 -5) "out")
-  		       'names
-  		       (split-string data)))
+  (unless (string= data "")
+    (ii-set-channel-data (ii-names-to-out file)
+			 'names
+			 (split-string data))))
 
 (defun ii-set-channel-data (channel key value)
-  "Sets data for channel"
   (assert (symbolp key))
   (let ((channel-data (or (gethash channel ii-channel-data)
 			  (puthash channel (make-hash-table) ii-channel-data))))
     (puthash key value channel-data)))
 
 (defun ii-get-channel-data (channel key)
-  "Gets data for channel"
   (let ((channel-data (gethash channel ii-channel-data)))
     (when channel-data
       (gethash key channel-data))))     
@@ -196,7 +205,6 @@ until the next insertation onto history-ring")
 	       (= (process-exit-status ii-inotify-process) 0))
     (ii-cache-files)
     (setf ii-inotify-process
-	  ;; goddamn this was annoying to get to work properly.
 	  ;; get updated files as space separated: newsize path
 	  (ii-command (concat "inotifywait -mre close_write --format %w%f "
 			      ii-irc-directory
@@ -213,9 +221,10 @@ until the next insertation onto history-ring")
 			      (string-to-number new-size)
 			      'ii-handle-delta))
 	      ((string= (substring file -5) "names")
-	       (ii-get-file-chunk file
-	       			  0 (string-to-number new-size)
-	       			  'ii-parse-names)))))))
+	       (when (ii-get-buffer (ii-names-to-out file))
+		 (ii-get-file-chunk file
+				    0 (string-to-number new-size)
+				    'ii-parse-names))))))))
 
 (defun ii-get-file-chunk (file start-offset length filter)
   ;;(message "g-f-c file: %s start-offset: %i length: %i" file start-offset length)
@@ -294,7 +303,7 @@ until the next insertation onto history-ring")
 (defun ii-mode-init ()
   (use-local-map ii-mode-map)
 
-  ;; local variables.  
+  ;; local variables.
   (set (make-local-variable 'ii-prompt-marker) (make-marker))
   (set (make-local-variable 'ii-backlog-offset) nil)
   (set (make-local-variable 'ii-topline-buffer) nil)
@@ -330,6 +339,7 @@ until the next insertation onto history-ring")
 
   (insert ii-prompt-text)
   (ii-insert-history-chunk)
+  (ii-cache-names-for (ii-escape ii-buffer-logfile))
 
   ;; make it all readonly
   (let ((inhibit-read-only t))
