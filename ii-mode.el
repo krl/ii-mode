@@ -94,9 +94,9 @@ until the next insertation onto history-ring")
 		   (append x
 			   (cond ((member y '(?# ?\; ?! ?\( ?\) ?' ?| ?< ?> ?& ?* ?~))
 				  (list ?\\ y))
-				 ((= y ?\\)
+				 ((member y '(?\\))
 				  (list ?\\ ?\\ y))
-				 ((= y ?\")
+				 ((member y '(?\" ?` ?$))
 				  (list ?\\ ?\\ ?\\ y))
 				 (t
 				  (list y)))))
