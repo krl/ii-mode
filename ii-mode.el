@@ -481,6 +481,11 @@ BEG and END should be the beginnig and ending point of prompt"
   (when (null ii-notifications) (error "No notifications"))
   (ii-visit-file-among ii-notifications))
 
+(defun ii-clear-all-notifications ()
+  (interactive)
+  (setf ii-notifications nil)
+  (ii-clear-notifications))
+
 (defun ii-clear-notifications ()
   "Removes notification on current buffer if any."
   (when (member ii-buffer-logfile ii-notifications)
