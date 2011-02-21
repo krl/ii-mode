@@ -8,6 +8,9 @@
   "The inotify process")
 (defvar ii-channel-data (make-hash-table :test 'equal)
   "Keeps track of channel data")
+(defvar ii-completing-read 'completing-read
+  "which function to use for channel name completion")
+
 (defvar ii-mode-hooks nil)
 
 (defvar ii-ssh-domain nil
@@ -81,33 +84,29 @@ until the next insertation onto history-ring")
 ;; database/file handling
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defun ii-expand-command (command)
-  (if ii-ssh-domain 
-      (concat "ssh " ii-ssh-domain " \""
-	      command
-	      "\"")
+(defun ii-add-host (command)
+  (if ii-ssh-domain
+      (concat "ssh " ii-ssh-domain " \"" (ii-escape command) "\"")
     command))
 
 (defun ii-escape (text)
   (apply 'string
 	 (reduce (lambda (x y)
-		   (append x
-			   (cond ((member y '(?# ?\; ?! ?\( ?\) ?' ?| ?< ?> ?& ?* ?~))
-				  (list ?\\ y))
-				 ((member y '(?\\))
-				  (list ?\\ ?\\ y))
-				 ((member y '(?\" ?` ?$))
-				  (list ?\\ ?\\ ?\\ y))
-				 (t
-				  (list y)))))
+		   (append x (if (member y '(?\" ?&))
+				 (list ?\\ y)
+			       (list y))))
 		 (string-to-list text)
 		 :initial-value nil)))
 
 (defun ii-command-sync (command)
-  (shell-command-to-string (ii-expand-command command)))
+  (shell-command-to-string (ii-add-host command)))
 
-(defun ii-command (command &optional filter)
-  (let ((process (start-process-shell-command "ii-command" nil (ii-expand-command command))))
+(defun ii-command (command &optional filter stdin)
+  (let* ((withhost (ii-add-host command))
+	 (command (if stdin 
+		      (concat "echo -e \"" (ii-escape stdin) "\" | " withhost)
+		    withhost))
+	 (process (start-process-shell-command "ii-command" nil command)))
     (when filter
       (set-process-filter process filter))
     process))
@@ -147,8 +146,7 @@ until the next insertation onto history-ring")
 						       " -name names | xargs grep -e '.*'")) "\n"))
     (let ((file-names (split-string line":")))
       (when (= (length file-names) 2)
-	(ii-set-channel-data (ii-names-to-out (first file-names))
-			     'names (split-string (or (second file-names) "")))))))
+	(ii-set-channel-data (first file-names) 'names (split-string (or (second file-names) "")))))))
 
 (defun ii-cache-names-for (outfile)
   (let ((namesfile (ii-out-to-names outfile)))    
@@ -162,26 +160,26 @@ until the next insertation onto history-ring")
 
 (defun ii-parse-names (file data)
   (unless (string= data "")
-    (ii-set-channel-data (ii-names-to-out file)
-			 'names
-			 (split-string data))))
+    (ii-set-channel-data file 'names (split-string data))))
 
 (defun ii-set-channel-data (channel key value)
   (assert (symbolp key))
-  (let ((channel-data (or (gethash channel ii-channel-data)
-			  (puthash channel (make-hash-table) ii-channel-data))))
+  (let* ((channel-dir (file-name-directory channel))
+	 (channel-data (or (gethash channel-dir ii-channel-data)
+			   (puthash channel-dir (make-hash-table) ii-channel-data))))
     (puthash key value channel-data)))
 
 (defun ii-get-channel-data (channel key)
-  (let ((channel-data (gethash channel ii-channel-data)))
+  (let* ((channel-dir (file-name-directory channel))
+	 (channel-data (gethash channel-dir ii-channel-data)))
     (when channel-data
-      (gethash key channel-data))))     
+      (gethash key channel-data))))
 
 (defun ii-visit-file-among (list)
   "Takes a list of channel filenames and selects one to visit."
   (ii-open-file-buffer (ii-longname
-			(ido-completing-read 
-			 "find: " (mapcar 'ii-shortname list) nil t))))
+			(funcall ii-completing-read
+				 "find: " (mapcar 'ii-shortname list) nil t))))
 
 (defun ii-visit-server-file ()
   "Selects among server channel files"
@@ -221,7 +219,7 @@ until the next insertation onto history-ring")
 			      (string-to-number new-size)
 			      'ii-handle-delta))
 	      ((string= (substring file -5) "names")
-	       (when (ii-get-buffer (ii-names-to-out file))
+	       (when (ii-get-buffer file)
 		 (ii-get-file-chunk file
 				    0 (string-to-number new-size)
 				    'ii-parse-names))))))))
@@ -445,11 +443,9 @@ BEG and END should be the beginnig and ending point of prompt"
   (interactive)
   (let* ((fifo-in (concat (file-name-directory ii-buffer-logfile) "in"))
          (msg (ii-clear-and-return-prompt)))
-    ;; (unless (ii-file-exists-p fifo-in)
-    ;;   (error "Invalid channel directory"))
-    ;; need mkfifo in before, in order to not create a regular in-file and mess up
-    (ii-command (concat "mkfifo " (ii-escape fifo-in) " 2> /dev null;"
-			"echo " (ii-escape msg) " > " (ii-escape fifo-in)))
+    (unless (ii-get-channel-data ii-buffer-logfile 'size)
+      (error "Invalid channel directory"))
+    (ii-command (concat "cat > " fifo-in) nil msg)
     (ii-set-channel-data ii-buffer-logfile 'last-write (current-time))
     (ii-history-ring-add msg)))
 

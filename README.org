@@ -21,7 +21,7 @@ GPL v3 or later.
 Put ii-mode.el in your emacs path and write something like this in your init file:
 
 : (require 'ii-mode)
-:  (setf ii-irc-directory "/home/username/irc/")
+:  (setq ii-irc-directory "/home/username/irc/")
 
 To customize behavior you can use ii-mode-hook, this is what I do:
 
@@ -34,6 +34,10 @@ Look in the source variable definitions for customizing face colors etc.
 
 To visit any of the channels tracked by ii-mode use 'ii-visit-channel-file, to visit only the server channels use 'ii-visit-server-file.
 
+To make this more pleasant you probably want to replace the default emacs completing read. Personally I use the one provided by ido-mode.
+
+: (setq ii-completing-read 'ido-completing-read)
+
 * Automatic backlogging
 ii-mode inserts ii-chunk-size bytes of backlog into the buffer on visiting a channel buffer. This variable can be customized to save memory.
 
@@ -41,10 +45,10 @@ It also attaches a hook into reverse isearch wrap, that inserts more of the log 
 * Notification
 By default, you only get notified on user queries. To ii-mode, this is channels with ii-directories not starting with "#" or "&". To get notified on mentioning of your user name or favourite dish just set the variable 'ii-notify-regexps in your config like this:
 
-: (setf ii-notify-regexps '("\\bkrl\\b" "\\bkrrl\\b" "\\basparagus\\b"))
+: (setq ii-notify-regexps '("\\bkrl\\b" "\\bkrrl\\b" "\\basparagus\\b"))
 
 If you have a channel you want to keep extra track of, put it in the list 'ii-notify-channels and you will be bugged whenever it's updated.
 
-: (setf ii-notify-channels '("irc.efnet.net/#data_kraft"))
+: (setq ii-notify-channels '("irc.efnet.net/#data_kraft"))
 
 You will se a "*ii*" in the global modeline when a notification is activated. To see which and/or to visit them, bind the command 'ii-visit-notified-file to a key sequence of choice.
