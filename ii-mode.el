@@ -86,25 +86,16 @@ until the next insertation onto history-ring")
 
 (defun ii-add-host (command)
   (if ii-ssh-domain
-      (concat "ssh " ii-ssh-domain " \"" (ii-escape command) "\"")
+      (concat "ssh " ii-ssh-domain " " (shell-quote-argument command))
     command))
-
-(defun ii-escape (text)
-  (apply 'string
-	 (reduce (lambda (x y)
-		   (append x (if (member y '(?\" ?&))
-				 (list ?\\ y)
-			       (list y))))
-		 (string-to-list text)
-		 :initial-value nil)))
 
 (defun ii-command-sync (command)
   (shell-command-to-string (ii-add-host command)))
 
 (defun ii-command (command &optional filter stdin)
   (let* ((withhost (ii-add-host command))
-	 (command (if stdin 
-		      (concat "echo -e \"" (ii-escape stdin) "\" | " withhost)
+	 (command (if stdin
+		      (concat "echo -e " (shell-quote-argument stdin) " | " withhost)
 		    withhost))
 	 (process (start-process-shell-command "ii-command" nil command)))
     (when filter
@@ -233,7 +224,7 @@ until the next insertation onto history-ring")
 		(count  0)
 		(length length))
     (ii-command (format "dd ibs=1 if=%s skip=%i count=%i 2> /dev/null" 
-			(ii-escape file) start-offset length)
+			(shell-quote-argument file) start-offset length)
 		(lambda (_ data)
 		  ;; (when (string= (substring file 0 -5) "names")
 		  ;;   (message "ii-got-chunk %s of %s\n----------\n%s" count length data))
@@ -249,7 +240,7 @@ until the next insertation onto history-ring")
 
 (defun ii-get-file-chunk-sync (file start-offset length)
   (ii-command-sync (format "dd ibs=1 if=%s skip=%i count=%i 2> /dev/null" 
-			   (ii-escape file) start-offset length)))
+			   (shell-quote-argument file) start-offset length)))
 
 (defun ii-get-file-delta (file new-size filter)
   "Gets the end of the file that has grown."
@@ -337,7 +328,7 @@ until the next insertation onto history-ring")
 
   (insert ii-prompt-text)
   (ii-insert-history-chunk)
-  (ii-cache-names-for (ii-escape ii-buffer-logfile))
+  (ii-cache-names-for (shell-quote-argument ii-buffer-logfile))
 
   ;; make it all readonly
   (let ((inhibit-read-only t))
