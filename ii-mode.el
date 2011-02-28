@@ -452,8 +452,8 @@ BEG and END should be the beginnig and ending point of prompt"
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun ii-notify (file)
-  (unless (member file ii-notifications)
-    (push file ii-notifications))
+  (remove file ii-notifications)
+  (push file ii-notifications)
   (add-to-list 'global-mode-string "*ii*"))
 
 (defun ii-contains-regexp (lines)
