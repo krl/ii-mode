@@ -436,7 +436,7 @@ BEG and END should be the beginnig and ending point of prompt"
          (msg (ii-clear-and-return-prompt)))
     (unless (ii-get-channel-data ii-buffer-logfile 'size)
       (error "Invalid channel directory"))
-    (ii-command (concat "cat > " fifo-in) nil msg)
+    (ii-command (concat "cat > " (shell-quote-argument fifo-in)) nil msg)
     (ii-set-channel-data ii-buffer-logfile 'last-write (current-time))
     (ii-history-ring-add msg)))
 
