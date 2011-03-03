@@ -452,7 +452,7 @@ BEG and END should be the beginnig and ending point of prompt"
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun ii-notify (file)
-  (remove file ii-notifications)
+  (setf ii-notifications (remove file ii-notifications))
   (push file ii-notifications)
   (add-to-list 'global-mode-string "*ii*"))
 
