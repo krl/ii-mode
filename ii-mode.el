@@ -93,7 +93,11 @@ until the next insertation onto history-ring")
   (shell-command-to-string (ii-add-host command)))
 
 (defun ii-command (command &optional filter stdin)
-  (let* ((withhost (ii-add-host command))
+  (let* ((withhost (ii-add-host 
+		    ;; semi hack. if data is sent, touch the active file.
+		    (if stdin			
+			(concat command " ; touch ~/.ii-active")
+		      command)))
 	 (command (if stdin
 		      (concat "echo -e " (shell-quote-argument stdin) " | " withhost)
 		    withhost))
