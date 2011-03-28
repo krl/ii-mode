@@ -282,7 +282,9 @@ until the next insertation onto history-ring")
 
 (defun ii-antishoulder ()
   (interactive)
-  (setq ii-window-preshoulder (current-window-configuration))
+  (unless ii-window-preshoulder
+    ;; save oldest
+    (setq ii-window-preshoulder (current-window-configuration)))
   (delete-other-windows)
   (if ii-prefered-antishoulder
       (find-file ii-prefered-antishoulder)
@@ -293,8 +295,9 @@ until the next insertation onto history-ring")
 
 (defun ii-postshoulder ()
   (interactive)
-  (if (window-configuration-p ii-window-preshoulder)
-      (set-window-configuration ii-window-preshoulder)))
+  (when (window-configuration-p ii-window-preshoulder)
+    (set-window-configuration ii-window-preshoulder)
+    (setq ii-window-preshoulder nil)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; mode
@@ -522,6 +525,7 @@ BEG and END should be the beginnig and ending point of prompt"
 	buffer)))
 
 (defun ii-open-file-buffer (file)
+  (ii-postshoulder)
   (switch-to-buffer (ii-get-channel-buffer file)))
 
 (defun ii-insert-history-chunk ()
