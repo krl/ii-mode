@@ -276,6 +276,25 @@ until the next insertation onto history-ring")
   		   (ii-special-channel file)))    ; or special channel
       (ii-notify file))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; antishoulder
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun ii-antishoulder ()
+  (interactive)
+  (setq ii-window-preshoulder (current-window-configuration))
+  (delete-other-windows)
+  (if ii-prefered-antishoulder
+      (find-file ii-prefered-antishoulder)
+    (dolist (buf (buffer-list))
+      (when (buffer-file-name buf)
+	(switch-to-buffer buf)
+	(return)))))
+
+(defun ii-postshoulder ()
+  (interactive)
+  (if (window-configuration-p ii-window-preshoulder)
+      (set-window-configuration ii-window-preshoulder)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; mode
