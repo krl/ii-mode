@@ -9,7 +9,11 @@
 (defvar ii-channel-data (make-hash-table :test 'equal)
   "Keeps track of channel data")
 (defvar ii-completing-read 'completing-read
-  "which function to use for channel name completion")
+  "Which function to use for channel name completion")
+(defvar ii-prefered-antishoulder nil
+  "Prefered antishoulder file to open")
+(defvar ii-window-preshoulder nil
+  "Window configuration before shouldering")
 
 (defvar ii-mode-hooks nil)
 
