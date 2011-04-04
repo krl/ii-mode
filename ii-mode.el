@@ -247,8 +247,13 @@ until the next insertation onto history-ring")
 		    (funcall filter file buffer))))))
 
 (defun ii-get-file-chunk-sync (file start-offset length)
-  (ii-command-sync (format "dd ibs=1 if=%s skip=%i count=%i 2> /dev/null" 
-			   (shell-quote-argument file) start-offset length)))
+  (ii-command-sync (format "dd ibs=1 if=%s skip=%i count=%i 2> /dev/null %s"
+			   (shell-quote-argument file) 
+			   start-offset
+			   length
+			   (reduce (lambda (a b) (concat a "| grep -v '" b "' "))
+				   ii-censor
+				   :initial-value ""))))
 
 (defun ii-get-file-delta (file new-size filter)
   "Gets the end of the file that has grown."
@@ -260,25 +265,26 @@ until the next insertation onto history-ring")
 
 (defun ii-handle-delta (file delta)
   "Called when a channel file is written to."
-  (let ((buffer (ii-get-buffer file)))
-    (when buffer
-      ;; Affected file is being changed and visited
-      (with-current-buffer buffer
-  	(let* ((point-past-prompt (< (1- ii-prompt-marker) (point)))
-  	       (point-from-end (- (point-max) (point)))
-  	       (inhibit-read-only t))	    
-  	  (save-excursion
-  	    (goto-char ii-prompt-marker)
-  	    (insert-before-markers (propertize delta 'read-only t)))
-  	  (when point-past-prompt
-  	    (goto-char (- (point-max) point-from-end))))))
-    ;; Notify! but when? Listen up I'll tell you!
-    (when (and (or (not buffer)                      ; either no buffer or
-  		   (not (get-buffer-window buffer))) ; buffer currently not visible
-  	       (or (ii-query-file-p file)         ; Either a personal query,
-  		   (ii-contains-regexp delta)         ; or containing looked-for regexp
-  		   (ii-special-channel file)))    ; or special channel
-      (ii-notify file))))
+  (when (ii-koscher-p delta)
+    (let ((buffer (ii-get-buffer file)))
+      (when buffer
+	;; Affected file is being changed and visited
+	(with-current-buffer buffer
+	  (let* ((point-past-prompt (< (1- ii-prompt-marker) (point)))
+		 (point-from-end (- (point-max) (point)))
+		 (inhibit-read-only t))	    
+	    (save-excursion
+	      (goto-char ii-prompt-marker)
+	      (insert-before-markers (propertize delta 'read-only t)))
+	    (when point-past-prompt
+	      (goto-char (- (point-max) point-from-end))))))
+      ;; Notify! but when? Listen up I'll tell you!
+      (when (and (or (not buffer)                      ; either no buffer or
+		     (not (get-buffer-window buffer))) ; buffer currently not visible
+		 (or (ii-query-file-p file)         ; Either a personal query,
+		     (ii-contains-regexp delta)         ; or containing looked-for regexp
+		     (ii-special-channel file)))    ; or special channel
+	(ii-notify file)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; antishoulder
@@ -512,6 +518,23 @@ BEG and END should be the beginnig and ending point of prompt"
     (setf global-mode-string (delete "*ii*" global-mode-string))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; censorship
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun ii-koscher-p (string)
+  (not (some (lambda (x) (string-match x string)) ii-censor)))
+
+(defun ii-censor (string)
+  (reduce (lambda (out line)
+	    (concat out
+		    (and (not (zerop (length out))) 
+			 "\n")
+		    (and (ii-koscher-p line)
+			 line)))
+	  (split-string string "[\n\r]+")
+	  :initial-value ""))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; open-partial
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -537,7 +560,7 @@ BEG and END should be the beginnig and ending point of prompt"
   (let* ((size              (ii-get-channel-data ii-buffer-logfile 'size))
 	 (end-offset        (1+ (or ii-backlog-offset size)))
 	 (start-offset      (max (- end-offset ii-chunk-size) 0)))
-    (ii-insert-text-top 
+    (ii-insert-text-top
      (ii-get-file-chunk-sync ii-buffer-logfile start-offset (- end-offset start-offset))
      start-offset
      end-offset)))
