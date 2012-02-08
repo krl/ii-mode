@@ -1,3 +1,43 @@
+;;; ii-mode.el --- Handle files created by irc client ii
+
+;; Copyright (C) Kristoffer Ström
+
+;; Author: Kristoffer Ström <kristoffer@rymdkoloni.se>
+;; Created: 20100618
+;; Version:
+;; Homepage: https://github.com/krl/ii-mode
+;; Keywords: irc
+
+;; This file is not part of GNU Emacs.
+
+;; This file is free software; you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation; either version 3, or (at your option)
+;; any later version.
+
+;; This file is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; For a full copy of the GNU General Public License
+;; see <http://www.gnu.org/licenses/>.
+
+;;; Commentary:
+
+;; ii-mode is an Emacs mode for handling files created by ii. It can help
+;; you to stay logged in even through emacs restarts.
+
+;; The model of using Emacs for interfaces to external programs, rather
+;; than running them inside the elisp environment itself also seems more
+;; elegant.
+
+;; This allows for a much more detached use of irc, not having to keep one
+;; buffer open for each channel, but still getting notified if someone
+;; pings you.
+
+;;; Code:
+
 (defvar ii-irc-directory "~/irc/"
   "Directory to look for ii files in. end with slash.")
 (defvar ii-prompt-marker nil
